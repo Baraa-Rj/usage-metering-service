@@ -2,8 +2,9 @@
 import express, { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import type pg from "pg";
-import { authenticate } from "./auth.js";
+import { authenticate, requireAdmin } from "./auth.js";
 import { AppError } from "./errors.js";
+import { accountsRouter } from "./routes/accounts.js";
 
 type ErrorBody = { error: { code: string; message: string } };
 
@@ -33,7 +34,7 @@ export function createApp(pool: pg.Pool) {
 
     const v1 = Router();
     // Admin-only routes (POST /accounts) are mounted here, before authenticate.
-
+    v1.use("/accounts", requireAdmin,accountsRouter(pool));
     // Everything below needs a valid API key, so a route added later is protected by default.
     v1.use(authenticate(pool));
     // Account-scoped routes (plans, users, consume, usage) are mounted here.
