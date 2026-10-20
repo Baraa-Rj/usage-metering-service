@@ -2,21 +2,11 @@
 import { Router } from "express";
 import type pg from "pg";
 import { generateApiKey, hashApiKey } from "../auth.js";
+import { isUniqueViolation } from "../dbErrors.js";
 import { conflictError, validationError } from "../errors.js";
 import { bodyObject, optionalString, requiredString } from "../validate.js";
 
 const DEFAULT_PLAN = "Starter";
-
-function isUniqueViolation(err: unknown, constraint: string): boolean {
-    return (
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        err.code === "23505" &&
-        "constraint" in err &&
-        err.constraint === constraint
-    );
-}
 
 export function accountsRouter(pool: pg.Pool): Router {
     const router = Router();
