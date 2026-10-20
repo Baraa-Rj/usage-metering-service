@@ -128,3 +128,90 @@ CREATE TRIGGER accounts_check_plan_ownership
 CREATE TRIGGER users_check_plan_ownership
     BEFORE INSERT OR UPDATE OF plan_id, account_id ON users
     FOR EACH ROW EXECUTE FUNCTION check_plan_ownership();
+
+CREATE TABLE account_usage (
+    account_id uuid   NOT NULL REFERENCES accounts (id) ON DELETE RESTRICT,
+    month      date   NOT NULL,
+    used       bigint NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (account_id, month),
+    CONSTRAINT account_usage_used_nonneg CHECK (used >= 0),
+    CONSTRAINT account_usage_month_is_first
+        CHECK (month = date_trunc('month', month)::date)
+);
+
+CREATE TABLE user_usage (
+    user_id uuid    NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    month   date    NOT NULL,
+    used    bigint  NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (user_id, month),
+    CONSTRAINT user_usage_used_nonneg CHECK (used >= 0),
+    CONSTRAINT user_usage_month_is_first
+        CHECK (month = date_trunc('month', month)::date)
+);
+
+-- Redundant with the primary key on its own; it exists so that requests can
+-- reference (user_id, account_id) and the database guarantees that a request's
+-- user belongs to the request's account.
+ALTER TABLE users
+    ADD CONSTRAINT users_id_account_key UNIQUE (id, account_id);
+
+CREATE TABLE requests (
+    id          uuid   PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id  uuid   NOT NULL REFERENCES accounts (id) ON DELETE RESTRICT,
+    user_id     uuid   NOT NULL,
+    request_id  text   NOT NULL,
+
+    units          bigint         NOT NULL,
+    month          date           NOT NULL,
+    decision       decision       NOT NULL,
+    rejection_rule rejection_rule,
+
+    account_plan_id            uuid   NOT NULL REFERENCES plans (id) ON DELETE RESTRICT,
+    user_plan_id               uuid   NOT NULL REFERENCES plans (id) ON DELETE RESTRICT,
+    account_monthly_allowance  bigint NOT NULL,
+    account_max_per_request    bigint NOT NULL,
+    user_monthly_allowance     bigint NOT NULL,
+    user_max_per_request       bigint NOT NULL,
+    account_used_before        bigint NOT NULL,
+    user_used_before           bigint NOT NULL,
+
+    created_at  timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT requests_user_account_fk
+        FOREIGN KEY (user_id, account_id)
+        REFERENCES users (id, account_id) ON DELETE RESTRICT,
+
+    CONSTRAINT requests_account_request_key UNIQUE (account_id, request_id),
+
+    CONSTRAINT requests_request_id_not_blank CHECK (btrim(request_id) <> ''),
+    CONSTRAINT requests_units_positive       CHECK (units > 0),
+    CONSTRAINT requests_month_is_first
+        CHECK (month = date_trunc('month', month)::date),
+
+    CONSTRAINT requests_decision_rule_match
+        CHECK ((decision = 'rejected') = (rejection_rule IS NOT NULL)),
+
+    CONSTRAINT requests_snapshot_nonneg CHECK (
+        account_monthly_allowance >= 0 AND user_monthly_allowance >= 0
+        AND account_max_per_request > 0 AND user_max_per_request > 0
+        AND account_used_before >= 0 AND user_used_before >= 0
+    ),
+
+    CONSTRAINT requests_accepted_within_limits CHECK (
+        decision <> 'accepted' OR (
+            units <= account_max_per_request
+            AND units <= user_max_per_request
+            AND account_used_before + units <= account_monthly_allowance
+            AND user_used_before   + units <= user_monthly_allowance
+        )
+    )
+);
+
+-- Newest-first keyset pagination; id breaks ties between equal created_at.
+CREATE INDEX requests_account_created_idx
+    ON requests (account_id, created_at DESC, id DESC);
+
+CREATE INDEX requests_user_created_idx
+    ON requests (user_id, created_at DESC, id DESC);
