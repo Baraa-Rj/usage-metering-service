@@ -49,3 +49,49 @@ CREATE TRIGGER plans_forbid_scope_change_trigger
     BEFORE UPDATE OF scope ON plans
     FOR EACH ROW
     EXECUTE FUNCTION plans_forbid_scope_change();
+
+CREATE TABLE accounts (
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name          text        NOT NULL,
+    api_key_hash  text        NOT NULL UNIQUE,
+    plan_id       uuid        NOT NULL,
+    plan_scope    plan_scope  NOT NULL DEFAULT 'account',
+    created_at    timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT accounts_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT accounts_plan_scope_is_account CHECK (plan_scope = 'account'),
+    CONSTRAINT accounts_plan_fk
+        FOREIGN KEY (plan_id, plan_scope)
+        REFERENCES plans (id, scope)
+        ON DELETE RESTRICT
+);
+
+ALTER TABLE plans
+    ADD CONSTRAINT plans_owner_account_fk
+    FOREIGN KEY (owner_account_id)
+    REFERENCES accounts (id)
+    ON DELETE RESTRICT;
+
+CREATE INDEX accounts_plan_id_idx ON accounts (plan_id);
+
+CREATE TABLE users (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id uuid NOT NULL
+        REFERENCES accounts (id)
+        ON DELETE RESTRICT,
+    external_user_id text NOT NULL,
+    plan_id uuid NOT NULL,
+    plan_scope plan_scope NOT NULL DEFAULT 'user',
+    created_at timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT users_external_id_not_blank CHECK (btrim(external_user_id) <> ''),
+    CONSTRAINT users_plan_scope_is_user CHECK (plan_scope = 'user'),
+    CONSTRAINT users_plan_fk
+        FOREIGN KEY (plan_id, plan_scope)
+        REFERENCES plans (id, scope)
+        ON DELETE RESTRICT,
+    CONSTRAINT users_account_external_key
+        UNIQUE (account_id, external_user_id)
+);
+
+CREATE INDEX users_plan_id_idx ON users (plan_id);
