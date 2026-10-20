@@ -1,0 +1,22 @@
+{
+  "name": "usage-metering-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Baraa-Rj/usage-metering-service.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Baraa-Rj/usage-metering-service/issues"
+  },
+  "homepage": "https://github.com/Baraa-Rj/usage-metering-service#readme"
+}
