@@ -95,3 +95,36 @@ CREATE TABLE users (
 );
 
 CREATE INDEX users_plan_id_idx ON users (plan_id);
+
+CREATE FUNCTION check_plan_ownership() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    plan_owner     uuid;
+    entity_account uuid;
+BEGIN
+    SELECT owner_account_id
+      INTO plan_owner
+      FROM plans
+     WHERE id = NEW.plan_id;
+
+    IF TG_TABLE_NAME = 'accounts' THEN
+        entity_account := NEW.id;
+    ELSE
+        entity_account := NEW.account_id;
+    END IF;
+
+    IF plan_owner IS NOT NULL AND plan_owner <> entity_account THEN
+        RAISE EXCEPTION 'plan % is owned by another account', NEW.plan_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER accounts_check_plan_ownership
+    BEFORE INSERT OR UPDATE OF plan_id ON accounts
+    FOR EACH ROW EXECUTE FUNCTION check_plan_ownership();
+
+CREATE TRIGGER users_check_plan_ownership
+    BEFORE INSERT OR UPDATE OF plan_id, account_id ON users
+    FOR EACH ROW EXECUTE FUNCTION check_plan_ownership();
