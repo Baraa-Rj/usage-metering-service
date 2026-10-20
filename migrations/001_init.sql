@@ -151,9 +151,6 @@ CREATE TABLE user_usage (
         CHECK (month = date_trunc('month', month)::date)
 );
 
--- Redundant with the primary key on its own; it exists so that requests can
--- reference (user_id, account_id) and the database guarantees that a request's
--- user belongs to the request's account.
 ALTER TABLE users
     ADD CONSTRAINT users_id_account_key UNIQUE (id, account_id);
 
@@ -209,7 +206,6 @@ CREATE TABLE requests (
     )
 );
 
--- Newest-first keyset pagination; id breaks ties between equal created_at.
 CREATE INDEX requests_account_created_idx
     ON requests (account_id, created_at DESC, id DESC);
 
