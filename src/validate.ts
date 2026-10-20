@@ -31,3 +31,16 @@ export function optionalString(
     if (obj[field] === undefined) return undefined;
     return requiredString(obj, field, maxLength);
 }
+
+// A positive whole number. Safe integers only: above 2^53 a JS number can no longer
+// represent every integer exactly, so such values are rejected instead of rounded.
+export function requiredInteger(obj: Record<string, unknown>, field: string): number {
+    const value = obj[field];
+    if (typeof value !== "number") {
+        throw validationError(`${field} is required and must be a number`);
+    }
+    if (!Number.isSafeInteger(value) || value <= 0) {
+        throw validationError(`${field} must be a positive integer`);
+    }
+    return value;
+}

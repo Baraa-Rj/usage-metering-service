@@ -6,8 +6,9 @@ import { authenticate, requireAdmin } from "./auth.js";
 import { AppError } from "./errors.js";
 import { accountsRouter } from "./routes/accounts.js";
 import { userRouter } from "./routes/users.js";
-
-
+import { consumeRouter } from "./routes/consume.js";
+import type { Clock } from "./clock.js";
+import { systemClock } from "./clock.js";
 
 type ErrorBody = { error: { code: string; message: string } };
 
@@ -21,7 +22,7 @@ function bodyParserErrorType(err: unknown): string | null {
     return null;
 }
 
-export function createApp(pool: pg.Pool) {
+export function createApp(pool: pg.Pool, clock: Clock = systemClock): express.Express {
     const app = express();
     app.use(express.json({ limit: "10kb" }));
 
@@ -42,7 +43,7 @@ export function createApp(pool: pg.Pool) {
     v1.use(authenticate(pool));
     // Account-scoped routes (plans, users, consume, usage) are mounted here.
     v1.use("/users", userRouter(pool));
-
+    v1.use("/consume", consumeRouter(pool, clock));
     app.use("/v1", v1);
 
     app.use((_req, _res, next) => next(new AppError(404, "not_found", "route not found")));
