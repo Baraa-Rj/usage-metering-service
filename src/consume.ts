@@ -2,7 +2,14 @@
 import type pg from "pg";
 import { utcMonthStart, type Clock } from "./clock.js";
 import { withTransaction } from "./db.js";
-import { decide, remaining, type RejectionRule } from "./decision.js";
+import {
+    decide,
+    explainDecision,
+    rejectedBy,
+    remaining,
+    type RejectionRule,
+    type Side,
+} from "./decision.js";
 import { idempotencyError, notFoundError, validationError } from "./errors.js";
 
 export interface ConsumeInput {
@@ -16,11 +23,16 @@ export interface ConsumeResult {
     requestId: string;
     decision: "accepted" | "rejected";
     rejectionRule: RejectionRule | null;
+    /** Which plan rejected the request: the account's shared plan or the user's own. */
+    rejectedBy: Side | null;
     units: number;
+    /** The UTC month the units count toward, e.g. "2026-10". */
+    month: string;
     /** true when this was a retry and the stored decision was returned. */
     replayed: boolean;
     accountRemaining: number;
     userRemaining: number;
+    explanation: string;
 }
 
 export async function consume(
@@ -97,9 +109,12 @@ export async function consume(
         };
 
         // Idempotency: a retry gets the stored decision back and counts nothing again.
+        // Its explanation comes from the stored snapshot, so it describes the original decision.
         const existing = (
             await db.query(
-                `SELECT user_id, units, decision, rejection_rule
+                `SELECT user_id, units, month, decision, rejection_rule,
+                        account_monthly_allowance, account_max_per_request, account_used_before,
+                        user_monthly_allowance, user_max_per_request, user_used_before
                    FROM requests
                   WHERE account_id = $1 AND request_id = $2`,
                 [accountId, requestId],
@@ -113,10 +128,27 @@ export async function consume(
                 requestId,
                 decision: existing.decision,
                 rejectionRule: existing.rejection_rule,
+                rejectedBy: rejectedBy(existing.rejection_rule),
                 units,
+                month: existing.month.slice(0, 7),
                 replayed: true,
                 accountRemaining: remaining(account),
                 userRemaining: remaining(user),
+                explanation: explainDecision({
+                    units,
+                    externalUserId,
+                    rejectionRule: existing.rejection_rule,
+                    account: {
+                        monthlyAllowance: existing.account_monthly_allowance,
+                        maxPerRequest: existing.account_max_per_request,
+                        usedBefore: existing.account_used_before,
+                    },
+                    user: {
+                        monthlyAllowance: existing.user_monthly_allowance,
+                        maxPerRequest: existing.user_max_per_request,
+                        usedBefore: existing.user_used_before,
+                    },
+                }),
             };
         }
 
@@ -167,10 +199,19 @@ export async function consume(
             requestId,
             decision: outcome.decision,
             rejectionRule: outcome.rejectionRule,
+            rejectedBy: rejectedBy(outcome.rejectionRule),
             units,
+            month: month.slice(0, 7),
             replayed: false,
             accountRemaining: remaining({ ...account, used: accountUsed + (accepted ? units : 0) }),
             userRemaining: remaining({ ...user, used: userUsed + (accepted ? units : 0) }),
+            explanation: explainDecision({
+                units,
+                externalUserId,
+                rejectionRule: outcome.rejectionRule,
+                account: { ...account, usedBefore: accountUsed },
+                user: { ...user, usedBefore: userUsed },
+            }),
         };
     });
 }
