@@ -3,12 +3,15 @@ import express, { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import type pg from "pg";
 import { authenticate, requireAdmin } from "./auth.js";
+import { systemClock, type Clock } from "./clock.js";
 import { AppError } from "./errors.js";
+import { accountRouter } from "./routes/account.js";
 import { accountsRouter } from "./routes/accounts.js";
-import { userRouter } from "./routes/users.js";
 import { consumeRouter } from "./routes/consume.js";
-import type { Clock } from "./clock.js";
-import { systemClock } from "./clock.js";
+import { plansRouter } from "./routes/plans.js";
+import { requestsRouter } from "./routes/requests.js";
+import { usageRouter } from "./routes/usage.js";
+import { usersRouter } from "./routes/users.js";
 
 type ErrorBody = { error: { code: string; message: string } };
 
@@ -24,6 +27,7 @@ function bodyParserErrorType(err: unknown): string | null {
 
 export function createApp(pool: pg.Pool, clock: Clock = systemClock): express.Express {
     const app = express();
+    app.disable("x-powered-by");
     app.use(express.json({ limit: "10kb" }));
 
     // Infrastructure probe: public, unversioned, and it checks the database too.
@@ -41,9 +45,13 @@ export function createApp(pool: pg.Pool, clock: Clock = systemClock): express.Ex
     v1.use("/accounts", requireAdmin, accountsRouter(pool));
     // Everything below needs a valid API key, so a route added later is protected by default.
     v1.use(authenticate(pool));
-    // Account-scoped routes (plans, users, consume, usage) are mounted here.
-    v1.use("/users", userRouter(pool));
+    // Account-scoped routes: every query below is filtered by req.account.id.
+    v1.use("/account", accountRouter(pool));
+    v1.use("/plans", plansRouter(pool));
+    v1.use("/users", usersRouter(pool, clock));
     v1.use("/consume", consumeRouter(pool, clock));
+    v1.use("/usage", usageRouter(pool, clock));
+    v1.use("/requests", requestsRouter(pool));
     app.use("/v1", v1);
 
     app.use((_req, _res, next) => next(new AppError(404, "not_found", "route not found")));

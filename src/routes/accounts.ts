@@ -3,8 +3,9 @@ import { Router } from "express";
 import type pg from "pg";
 import { generateApiKey, hashApiKey } from "../auth.js";
 import { isUniqueViolation } from "../dbErrors.js";
-import { conflictError, validationError } from "../errors.js";
-import { bodyObject, optionalString, requiredString } from "../validate.js";
+import { conflictError } from "../errors.js";
+import { planJson, planRefFrom, resolveAssignablePlan } from "../plans.js";
+import { bodyObject, requiredString } from "../validate.js";
 
 const DEFAULT_PLAN = "Starter";
 
@@ -14,19 +15,13 @@ export function accountsRouter(pool: pg.Pool): Router {
     router.post("/", async (req, res) => {
         const body = bodyObject(req.body);
         const name = requiredString(body, "name");
-        const planName = optionalString(body, "plan") ?? DEFAULT_PLAN;
-
         // A new account has no custom plans yet, so only predefined account plans qualify.
-        const planResult = await pool.query(
-            `SELECT id, name, monthly_allowance, max_per_request
-               FROM plans
-              WHERE scope = 'account' AND is_predefined AND archived_at IS NULL AND name = $1`,
-            [planName],
+        const plan = await resolveAssignablePlan(
+            pool,
+            null,
+            "account",
+            planRefFrom(body) ?? { name: DEFAULT_PLAN },
         );
-        const plan = planResult.rows[0];
-        if (!plan) {
-            throw validationError(`unknown account plan: ${planName}`);
-        }
 
         // The raw key is returned once and never stored; only its hash is.
         const apiKey = generateApiKey();
@@ -49,12 +44,7 @@ export function accountsRouter(pool: pg.Pool): Router {
         res.status(201).json({
             id: account.id,
             name,
-            plan: {
-                id: plan.id,
-                name: plan.name,
-                monthlyAllowance: plan.monthly_allowance,
-                maxPerRequest: plan.max_per_request,
-            },
+            plan: planJson(plan),
             apiKey,
             createdAt: account.created_at,
         });

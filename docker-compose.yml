@@ -1,0 +1,68 @@
+# docker compose up --build       Postgres + service + the demo client (runs once, then exits)
+# docker compose run --rm agent   the AI agent (needs ANTHROPIC_API_KEY in your environment)
+name: usage-metering
+
+x-app: &app
+  build: .
+  image: usage-metering-service:local
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: usage_metering
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d usage_metering"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  service:
+    <<: *app
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/usage_metering
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      PORT: "3000"
+    ports:
+      - "${SERVICE_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  client:
+    <<: *app
+    command: ["node", "dist/client/demo.js"]
+    environment:
+      SERVICE_URL: http://service:3000
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+    depends_on:
+      service:
+        condition: service_healthy
+    restart: "no"
+
+  agent:
+    <<: *app
+    profiles: ["agent"]
+    command: ["node", "dist/agent/main.js"]
+    environment:
+      SERVICE_URL: http://service:3000
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      METERING_API_KEY: ${METERING_API_KEY:-}
+    depends_on:
+      service:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  pgdata:

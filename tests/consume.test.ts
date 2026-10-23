@@ -52,12 +52,27 @@ describe("consume", () => {
             requestId: "r1",
             decision: "accepted",
             rejectionRule: null,
+            rejectedBy: null,
             units: 20,
+            month: "2026-10",
             replayed: false,
             accountRemaining: 80,
             userRemaining: 40,
         });
+        expect(result.explanation).toBe(
+            'Accepted: 20 units counted. 80 units left this month for the account and 40 units for user "u1".',
+        );
         expect(await usage(pool, ctx.accountId, OCT)).toEqual({ account: 20, users: 20 });
+    });
+
+    it("a replay explains the original decision from its snapshot, even after a plan edit", async () => {
+        const first = await call("r1", 30); // rejected: over the user's max of 25
+        await pool.query("UPDATE plans SET max_per_request = 50 WHERE id = $1", [ctx.userPlanId]);
+        const retry = await call("r1", 30);
+
+        expect(retry).toMatchObject({ replayed: true, decision: "rejected", rejectedBy: "user" });
+        expect(retry.explanation).toBe(first.explanation);
+        expect(retry.explanation).toContain("limit of 25 units per request");
     });
 
     it("a rejection consumes nothing but is still recorded", async () => {
