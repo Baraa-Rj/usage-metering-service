@@ -1,5 +1,5 @@
 // API key middleware: hash the key, look up the account, attach it to the request.
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response, RequestHandler } from "express";
 import type pg from "pg";
 import { forbiddenError, unauthorizedError } from "./errors.js";
@@ -61,10 +61,19 @@ export function authenticate(pool: pg.Pool): RequestHandler {
     };
 }
 
-// Guards POST /accounts. A missing token is null and never equals the key.
+// Constant-time compare so response timing doesn't reveal how much of the key matched.
+// Hashing first gives both sides the same length, which timingSafeEqual requires,
+// without leaking the key's length.
+function isAdminKey(token: string): boolean {
+    const given = createHash("sha256").update(token).digest();
+    const expected = createHash("sha256").update(config.adminApiKey).digest();
+    return timingSafeEqual(given, expected);
+}
+
+// Guards POST /accounts.
 export function requireAdmin(req: Request, _res: Response, next: NextFunction) {
     const token = bearerToken(req);
-    if (token !== config.adminApiKey) {
+    if (token === null || !isAdminKey(token)) {
         return next(forbiddenError("Admin API key required"));
     }
     next();

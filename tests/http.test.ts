@@ -98,6 +98,12 @@ describe("api key authentication", () => {
         expect((await acme.api.post("/v1/accounts", { name: "Evil" })).status).toBe(403);
     });
 
+    it("rejects near-miss admin keys: a prefix, an extension, a different case (403)", async () => {
+        for (const key of [ADMIN_KEY.slice(0, -1), `${ADMIN_KEY}x`, ADMIN_KEY.toUpperCase()]) {
+            expect((await api(server.url, key).post("/v1/accounts", { name: "Evil" })).status, key).toBe(403);
+        }
+    });
+
     it("the admin key is not an account key", async () => {
         expect((await api(server.url, ADMIN_KEY).get("/v1/account")).status).toBe(401);
     });

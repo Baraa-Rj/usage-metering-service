@@ -29,13 +29,24 @@ TypeScript (Node.js, Express 5) and PostgreSQL. One service, one database.
 ### With Docker (service + PostgreSQL + example client)
 
 ```bash
+cp .env.example .env
+# set POSTGRES_PASSWORD and ADMIN_API_KEY in .env, e.g. with: openssl rand -hex 32
 docker compose up --build
 ```
 
+No credentials are committed: compose reads `POSTGRES_PASSWORD` and `ADMIN_API_KEY` from
+`.env` (gitignored) or the shell and refuses to start without them. The image runs with
+`NODE_ENV=production`, so the service also refuses a missing, default or short (< 32
+characters) admin key.
+
 This starts PostgreSQL 18, the service on `http://localhost:3000` (migrations run on
 startup), and the example client, which runs a scripted walkthrough against the service,
-checks every outcome, and exits. The service keeps running. Set `SERVICE_PORT` to publish on
-another port and `ADMIN_API_KEY` to change the admin key.
+checks every outcome, and exits. The service keeps running. The port is published on
+loopback only; set `SERVICE_PORT` to use another port and `SERVICE_HOST=0.0.0.0` to expose
+it on the network.
+
+If you ran an older version of this compose file, the `pgdata` volume was initialised with
+the old password; recreate it once with `docker compose down -v`.
 
 The AI agent runs on demand and needs Claude credentials:
 
@@ -61,7 +72,7 @@ Configuration is read from environment variables (see [.env.example](.env.exampl
 |---|---|---|
 | `DATABASE_URL` | `postgres://postgres@localhost:5432/usage_metering` | PostgreSQL connection |
 | `PORT` | `3000` | HTTP port |
-| `ADMIN_API_KEY` | `dev-admin-key` | Key for creating accounts. **Set a long random value outside development**; the service warns at startup when `NODE_ENV=production` and the default is in use. |
+| `ADMIN_API_KEY` | `dev-admin-key` (development only) | Key for creating accounts. When `NODE_ENV=production` the service refuses to start unless it is set to a value of at least 32 characters other than the default. |
 | `DB_POOL_SIZE` | `10` | PostgreSQL connections per process |
 
 Other scripts: `npm run build` / `npm start` (compiled), `npm run migrate`, `npm run typecheck`,
@@ -519,8 +530,8 @@ Results from [loadtest/results.md](loadtest/results.md):
   - Hand out pre-allocated budget slices per user.
 - **No key rotation or account deletion.** An account has one key for life. A rotate-key
   endpoint and soft deletion would be next.
-- **Admin key comparison** is a plain string compare. Use a constant-time compare
-  (`crypto.timingSafeEqual`) and a secrets manager in production.
+- **Admin key in an environment variable.** It is compared in constant time and required in
+  production, but a secrets manager would be the next step.
 - **No rate limiting** of the API itself; it should sit behind a gateway that provides it.
 - **Archived plans can't be un-archived**, and users can't be deleted.
 - **History for past months** reports used units and request counts. It doesn't report the
