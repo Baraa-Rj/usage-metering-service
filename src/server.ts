@@ -1,16 +1,16 @@
 // Entry point: build the pool and app, then listen on config.port.
-import { config } from "./config.js";
+import { assertProductionConfig, config } from "./config.js";
 import { createPool } from "./db.js";
 import { migrate } from "./migrate.js";
 import { createApp } from "./app.js";
+
+// Fail fast, before touching the database, if production secrets are missing.
+assertProductionConfig();
 
 const pool = createPool(config.databaseUrl, config.dbPoolSize);
 const applied = await migrate(pool);
 if (applied.length > 0) {
     console.log(`applied migrations: ${applied.join(", ")}`);
-}
-if (process.env.NODE_ENV === "production" && config.adminApiKey === "dev-admin-key") {
-    console.warn("ADMIN_API_KEY is the development default; set a long random value in production");
 }
 
 const server = createApp(pool).listen(config.port, () => {

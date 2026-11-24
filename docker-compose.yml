@@ -1,5 +1,9 @@
-# docker compose up --build       Postgres + service + the demo client (runs once, then exits)
-# docker compose run --rm agent   the AI agent (needs ANTHROPIC_API_KEY in your environment)
+# cp .env.example .env              then set POSTGRES_PASSWORD and ADMIN_API_KEY in .env
+# docker compose up --build         Postgres + service + the demo client (runs once, then exits)
+# docker compose run --rm agent     the AI agent (needs ANTHROPIC_API_KEY in your environment)
+#
+# Secrets are never written here: compose reads them from .env (gitignored) or the shell
+# and refuses to start when a required one is missing.
 name: usage-metering
 
 x-app: &app
@@ -10,13 +14,13 @@ services:
   db:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: usage_metering
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d usage_metering"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d usage_metering"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -24,11 +28,12 @@ services:
   service:
     <<: *app
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/usage_metering
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@db:5432/usage_metering
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env (see .env.example)}
       PORT: "3000"
     ports:
-      - "${SERVICE_PORT:-3000}:3000"
+      # Loopback only by default; set SERVICE_HOST=0.0.0.0 to expose it on the network.
+      - "${SERVICE_HOST:-127.0.0.1}:${SERVICE_PORT:-3000}:3000"
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +49,7 @@ services:
     command: ["node", "dist/client/demo.js"]
     environment:
       SERVICE_URL: http://service:3000
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env (see .env.example)}
     depends_on:
       service:
         condition: service_healthy
@@ -56,7 +61,7 @@ services:
     command: ["node", "dist/agent/main.js"]
     environment:
       SERVICE_URL: http://service:3000
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env (see .env.example)}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       METERING_API_KEY: ${METERING_API_KEY:-}
     depends_on:
